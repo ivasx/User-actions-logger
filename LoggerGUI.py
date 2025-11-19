@@ -7,6 +7,7 @@ from pynput import keyboard
 
 from Logger import Logger
 
+
 class LoggerGUI:
     def __init__(self):
         self.logger = None
@@ -145,6 +146,7 @@ class LoggerGUI:
 
             # Start updating statistics
             self.update_statistics()
+            self.update_events()
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to start logging:\n{e}")
@@ -203,6 +205,17 @@ class LoggerGUI:
 
             # Planning for the next update
             self.root.after(1000, self.update_statistics)
+
+    def update_events(self):
+        if self.logger and self.logger.is_running:
+            self.events_text.delete(1.0, tk.END)
+
+            events = list(reversed(self.logger.recent_events[-50:]))
+            self.events_text.insert(1.0, '\n'.join(events))
+
+            self.events_text.see(1.0)
+
+            self.root.after(500, self.update_events)
 
     def export_stats(self):
         if not self.logger:

@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from datetime import datetime
+from collections import defaultdict
 from pynput import keyboard, mouse
 
 
@@ -28,7 +29,7 @@ class Logger:
         self.log_dir = log_dir
         self.log_level = log_level
         self.is_running = False
-        self.stats = {}
+        self.stats = defaultdict(int)
         self.session_start = None
 
         if not os.path.exists(self.log_dir):
@@ -44,6 +45,7 @@ class Logger:
         # Init filters
         self.filters = {
             'keyboard': True,
+            'keyboard_release': False,
             'mouse_move': False,
             'mouse_click': True,
             'mouse_scroll': True
@@ -54,7 +56,7 @@ class Logger:
         self.stop_on_hotkey = False
 
     def _setup_logger(self):
-        timestamp = datetime.now().strftime('%d-%m-%Y %H:%M:%S')
+        timestamp = datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
         log_filename = os.path.join(self.log_dir, f'user_actions_{timestamp}.log')
 
         formatter = logging.Formatter(
@@ -70,16 +72,26 @@ class Logger:
 
         self.logger = logging.getLogger('UserActionLogger')
         self.logger.setLevel(self.LOG_LEVELS[self.log_level])
+        self.logger.handlers.clear()
         self.logger.addHandler(file_handler)
         self.logger.addHandler(console_handler)
 
         self.current_log_file = log_filename
+        self.recent_events = []
 
         self.logger.info("=" * 70)
         self.logger.info("NEW LOG SESSION STARTED:")
         self.logger.info(f"Log level: {self.log_level}")
         self.logger.info(f"Log file: {log_filename}")
         self.logger.info("=" * 70)
+
+    def _add_event(self, message):
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        event = f"[{timestamp}] {message}"
+        self.recent_events.append(event)
+
+        if len(self.recent_events) > 100:
+            self.recent_events.pop(0)
 
     def _on_press(self, key):
         if self.stop_on_hotkey and key == self.stop_key:
@@ -92,18 +104,22 @@ class Logger:
 
         try:
             key_name = key.char if hasattr(key, 'char') else str(key)
-            self.logger.info(f"[KEYBOARD] Key pressed: {key_name}")
+            message = f"[KEYBOARD] Key pressed: {key_name}"
+            self.logger.info(message)
+            self._add_event(message)
             self.stats['keyboard_press'] += 1
         except Exception as e:
             self.logger.error(f"[KEYBOARD] Error occurred while processing key press: {e}")
 
     def _on_release(self, key):
-        if not self.filters['keyboard_release']:
+        if not self.filters.get('keyboard_release', False):
             return
 
         try:
             key_name = key.char if hasattr(key, 'char') else str(key)
-            self.logger.debug(f"[KEYBOARD]: Released {key_name}")
+            message = f"[KEYBOARD] Released {key_name}"
+            self.logger.debug(message)
+            self._add_event(message)
             self.stats['keyboard_release'] += 1
 
         except Exception as e:
@@ -113,7 +129,9 @@ class Logger:
         if not self.filters['mouse_move']:
             return
 
-        self.logger.debug(f"[MOUSE] Mouse moved to position: ({x}, {y})")
+        message = f"[MOUSE] Mouse moved to position: ({x}, {y})"
+        self.logger.debug(message)
+        self._add_event(message)
         self.stats['mouse_move'] += 1
 
     def _on_click(self, x, y, button, pressed):
@@ -122,7 +140,9 @@ class Logger:
 
         action = "pressed" if pressed else "released"
         button_name = str(button).replace('Button.', '')
-        self.logger.info(f"[MOUSE] Button {button_name} {action} at position ({x}, {y})")
+        message = f"[MOUSE] Button {button_name} {action} at position ({x}, {y})"
+        self.logger.info(message)
+        self._add_event(message)
 
         if pressed:
             self.stats[f'mouse_click_{button_name}'] += 1
@@ -132,7 +152,9 @@ class Logger:
             return
 
         direction = "up" if dy > 0 else "down"
-        self.logger.info(f"[MOUSE] Mouse scrolled {direction} at position ({x}, {y})")
+        message = f"[MOUSE] Mouse scrolled {direction} at position ({x}, {y})"
+        self.logger.info(message)
+        self._add_event(message)  # ДОДАНО
         self.stats['mouse_scroll'] += 1
 
     def start(self):
@@ -142,6 +164,8 @@ class Logger:
 
         self.is_running = True
         self.session_start = datetime.now()
+        self.stats.clear()
+        self.recent_events.clear()
         self.logger.info("[INFO] Logger started.")
 
         # Start listeners
@@ -194,9 +218,19 @@ class Logger:
             status = "enabled" if enabled else "disabled"
             self.logger.info(f"[FILTER] Filter '{filter_name}' set to {status}.")
 
+    def enable_hotkey_stop(self, enabled):
+        self.stop_on_hotkey = enabled
+        status = "enabled" if enabled else "disabled"
+        self.logger.info(f"[HOTKEY] Hotkey stop {status}.")
+
+    def set_stop_key(self, key):
+        self.stop_key = key
+        self.logger.info(f"[HOTKEY] Stop key set to {key}.")
+
     def export_statistics(self, filename=None):
         if filename is None:
-            filename = os.path.join(self.log_dir, f'stats_{datetime.now().strftime("%d-%m-%Y %H:%M:%S")}.json')
+            timestamp = datetime.now().strftime('%d-%m-%Y_%H-%M-%S')
+            filename = os.path.join(self.log_dir, f'stats_{timestamp}.json')
 
         stats_data = {
             'session_start': self.session_start.isoformat() if self.session_start else None,
